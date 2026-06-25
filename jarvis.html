@@ -516,11 +516,12 @@ function requestNotifPerm(){
 updatePermBanner();
 
 function fireNotification(task){
+  const storePart = task.store ? ` — ${task.store.name}${task.store.addr ? ', ' + task.store.addr : ''}, ~${task.store.price.toLocaleString('ru-RU')} ₸` : '';
   if('Notification' in window && Notification.permission === 'granted'){
-    new Notification('JARVIS напоминает', { body: task.text });
+    new Notification('JARVIS напоминает', { body: task.text + storePart });
   }
-  speak('Напоминаю: ' + task.text);
-  showToast('Напоминание: ' + task.text);
+  speak('Напоминаю: ' + task.text + (task.store ? `. Оптимальный магазин — ${task.store.name}.` : ''));
+  showToast('Напоминание: ' + task.text + storePart);
 }
 
 function scheduleTask(task){
@@ -569,12 +570,15 @@ function addTaskFromForm(){
     showToast('Укажите задачу и время');
     return;
   }
-  addTask(text, time);
+  const task = addTask(text, time);
   document.getElementById('bubble').innerHTML = `Принято: <b>${escapeHtml(text)}</b>. Напомню в ${time}.`;
   speak(`Принято. Напомню в ${time.replace(':', ' ')}.`);
   textEl.value = '';
   timeEl.value = '';
   showToast('Задача добавлена');
+  if(isPurchaseIntent(text)){
+    analyzeAndAttachStore(task, text);
+  }
 }
 
 function quickFill(text){
@@ -619,6 +623,15 @@ function renderTasks(){
         <div class="badge ${t.done ? 'done' : 'active'}">${t.done ? 'Выполнено' : 'Активно'}</div>
       </div>
       <div class="task-meta">Создано: ${new Date(t.createdAt).toLocaleString('ru-RU')} · Напоминание: ${t.time}</div>
+      ${t.store ? `
+      <div class="place-card" style="margin:10px 0 0;padding:10px 12px;">
+        <div class="place-top">
+          <div class="place-name">${escapeHtml(t.store.name)}</div>
+          <div class="place-price">~ ${t.store.price.toLocaleString('ru-RU')} ₸</div>
+        </div>
+        ${t.store.addr ? `<div class="place-addr">${escapeHtml(t.store.addr)}</div>` : ''}
+        <a class="place-link" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${t.store.lat},${t.store.lon}">Построить маршрут</a>
+      </div>` : ''}
       <div class="task-actions">
         <button class="success-btn" onclick="toggleDone('${t.id}')">${t.done ? 'Вернуть' : 'Выполнено'}</button>
         <button class="danger" onclick="deleteTask('${t.id}')">Удалить</button>
@@ -853,6 +866,43 @@ function isNearbyIntent(text){
   return /рядом|поблизости|где купить|где найти|найди магазин|ближайш/i.test(text);
 }
 
+function isPurchaseIntent(text){
+  return /купи|купить|заказа|приобрес/i.test(text);
+}
+
+async function analyzeAndAttachStore(task, text){
+  const category = detectCategory(text);
+  const priceRange = priceRangeFor(text);
+  document.getElementById('nearbyResults').innerHTML = '<div class="empty-state">Ищу магазины и сравниваю цены...</div>';
+  try{
+    const loc = await getUserLocation();
+    const found = await findNearbyPlaces(loc.lat, loc.lon, category.tag);
+    const ranked = rankPlaces(found, priceRange);
+    renderNearby(ranked, category.label);
+    if(ranked.length){
+      const best = ranked[0];
+      task.store = {
+        name: best.name || category.label,
+        addr: best.addr || '',
+        price: best.price,
+        lat: best.lat,
+        lon: best.lon
+      };
+      saveTasks();
+      renderTasks();
+      const addrPart = best.addr ? `, ${best.addr}` : '';
+      const msg = `Лучший вариант — ${best.name || category.label}${addrPart}. Цена около ${best.price.toLocaleString('ru-RU')} тенге, ${formatDistance(best.dist)} от вас.`;
+      document.getElementById('bubble').innerHTML += `<br>${escapeHtml(msg)}`;
+      speak(msg);
+    } else {
+      document.getElementById('bubble').innerHTML += '<br>Магазины рядом не нашёл.';
+    }
+  } catch(err){
+    document.getElementById('nearbyResults').innerHTML = '';
+    document.getElementById('bubble').innerHTML += '<br>Не получилось определить местоположение для анализа магазинов.';
+  }
+}
+
 function extractTime(text){
   let m = text.match(/в\s+(\d{1,2})[:\.](\d{2})/);
   if(m) return `${m[1].padStart(2,'0')}:${m[2]}`;
@@ -868,9 +918,12 @@ function processCmd(text){
   }
   const time = extractTime(text) || '18:00';
   const cleanText = text.replace(/джарвис[,]?\s*/i, '').trim();
-  addTask(cleanText, time);
+  const task = addTask(cleanText, time);
   document.getElementById('bubble').innerHTML = `Принято: <b>${escapeHtml(cleanText)}</b>. Напомню в ${time}.`;
   speak(`Принято. Напомню в ${time.replace(':', ' ')}.`);
+  if(isPurchaseIntent(cleanText)){
+    analyzeAndAttachStore(task, cleanText);
+  }
 }
 
 function sendChatInput(){
