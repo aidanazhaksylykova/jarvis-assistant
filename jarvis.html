@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>JARVIS — Персональный ассистент</title>
+<link rel="stylesheet" href="https://unpkg.com/@tabler/icons-webfont@latest/tabler-icons.min.css">
+<style>
+:root{
+  --bg:#0a0a0a;
+  --surface1:#141414;
+  --surface2:#1c1c1c;
+  --gold:#c8a96e;
+  --gold-dark:#8a7355;
+  --text:#f0ece4;
+  --text-muted:#777770;
+  --success:#4caf7d;
+  --error:#e05555;
+  --border:rgba(255,255,255,0.07);
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{
+  font-family:Inter,system-ui,-apple-system,sans-serif;
+  background:var(--bg);
+  color:var(--text);
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+}
+.app{
+  width:100%;
+  max-width:440px;
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  background:var(--bg);
+}
+header{
+  padding:18px 20px 10px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+.logo{
+  font-weight:700;
+  font-size:18px;
+  letter-spacing:2px;
+  color:var(--gold);
+}
+.status-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:var(--success);
+  box-shadow:0 0 8px var(--success);
+}
+.clock{
+  text-align:center;
+  padding:6px 0 14px;
+}
+.clock .time{font-size:34px;font-weight:600;letter-spacing:1px;}
+.clock .date{font-size:13px;color:var(--text-muted);margin-top:2px;text-transform:capitalize;}
+
+.voice-badge{
+  margin:0 20px 10px;
+  background:var(--surface1);
+  border:0.5px solid var(--border);
+  border-radius:14px;
+  padding:10px 14px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  font-size:12px;
+  color:var(--text-muted);
+}
+.voice-badge b{color:var(--gold);font-weight:600;}
+.voice-badge button{
+  background:var(--surface2);
+  border:0.5px solid var(--border);
+  color:var(--text);
+  border-radius:10px;
+  padding:6px 10px;
+  font-size:12px;
+  cursor:pointer;
+}
+.voice-badge button:hover{border-color:var(--gold-dark);}
+
+.perm-banner{
+  margin:0 20px 10px;
+  background:rgba(224,85,85,0.08);
+  border:0.5px solid rgba(224,85,85,0.3);
+  border-radius:14px;
+  padding:10px 14px;
+  font-size:12px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+}
+.perm-banner.ok{
+  background:rgba(76,175,125,0.08);
+  border-color:rgba(76,175,125,0.3);
+}
+.perm-banner button{
+  background:var(--gold);
+  color:#1a1308;
+  border:none;
+  border-radius:10px;
+  padding:6px 12px;
+  font-size:12px;
+  font-weight:600;
+  cursor:pointer;
+  white-space:nowrap;
+}
+
+.tabs{
+  display:flex;
+  margin:6px 20px 14px;
+  background:var(--surface1);
+  border-radius:14px;
+  padding:4px;
+  border:0.5px solid var(--border);
+}
+.tab{
+  flex:1;
+  text-align:center;
+  padding:9px 0;
+  border-radius:10px;
+  font-size:13px;
+  color:var(--text-muted);
+  cursor:pointer;
+  transition:0.15s;
+  user-select:none;
+}
+.tab.active{
+  background:var(--surface2);
+  color:var(--gold);
+  font-weight:600;
+}
+
+main{flex:1;padding:0 20px 30px;overflow-y:auto;}
+.page{display:none;}
+.page.active{display:block;animation:fade 0.2s ease;}
+@keyframes fade{from{opacity:0;transform:translateY(4px);}to{opacity:1;transform:translateY(0);}}
+
+.orb-wrap{display:flex;flex-direction:column;align-items:center;padding:24px 0 14px;}
+.orb{
+  width:120px;height:120px;border-radius:50%;
+  background:radial-gradient(circle at 30% 30%, #2a2218, var(--surface2));
+  border:1.5px solid var(--gold-dark);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;
+  position:relative;
+  transition:0.2s;
+}
+.orb i{font-size:40px;color:var(--gold);}
+.orb.listening{
+  border-color:var(--gold);
+  box-shadow:0 0 0 0 rgba(200,169,110,0.5);
+  animation:pulse 1.4s infinite;
+}
+@keyframes pulse{
+  0%{box-shadow:0 0 0 0 rgba(200,169,110,0.45);}
+  70%{box-shadow:0 0 0 22px rgba(200,169,110,0);}
+  100%{box-shadow:0 0 0 0 rgba(200,169,110,0);}
+}
+.orb-hint{margin-top:12px;font-size:12px;color:var(--text-muted);}
+
+.bubble{
+  background:var(--surface1);
+  border:0.5px solid var(--border);
+  border-radius:16px;
+  padding:14px 16px;
+  font-size:14px;
+  line-height:1.5;
+  margin:10px 0 18px;
+  min-height:44px;
+}
+.bubble b{color:var(--gold);}
+
+.field{margin-bottom:12px;}
+.field label{display:block;font-size:12px;color:var(--text-muted);margin-bottom:6px;}
+.field input[type=text], .field input[type=time]{
+  width:100%;
+  background:var(--surface1);
+  border:0.5px solid var(--border);
+  border-radius:12px;
+  padding:12px 14px;
+  color:var(--text);
+  font-size:14px;
+}
+.field input:focus{outline:none;border-color:var(--gold-dark);}
+
+.btn-primary{
+  width:100%;
+  background:var(--gold);
+  color:#1a1308;
+  border:none;
+  border-radius:12px;
+  padding:13px;
+  font-weight:600;
+  font-size:14px;
+  cursor:pointer;
+  margin-top:4px;
+}
+.btn-primary:hover{background:#d8bc88;}
+
+.quick-row{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0 4px;}
+.quick-chip{
+  background:var(--surface2);
+  border:0.5px solid var(--border);
+  border-radius:20px;
+  padding:7px 12px;
+  font-size:12px;
+  color:var(--text-muted);
+  cursor:pointer;
+}
+.quick-chip:hover{color:var(--gold);border-color:var(--gold-dark);}
+
+.input-row{
+  display:flex;gap:8px;margin-top:18px;
+}
+.input-row input{
+  flex:1;
+  background:var(--surface1);
+  border:0.5px solid var(--border);
+  border-radius:12px;
+  padding:12px 14px;
+  color:var(--text);
+  font-size:14px;
+}
+.input-row input:focus{outline:none;border-color:var(--gold-dark);}
+.input-row button{
+  background:var(--surface2);
+  border:0.5px solid var(--border);
+  border-radius:12px;
+  width:46px;
+  color:var(--gold);
+  font-size:18px;
+  cursor:pointer;
+}
+
+.task-card, .rem-card{
+  background:var(--surface1);
+  border:0.5px solid var(--border);
+  border-radius:14px;
+  padding:14px;
+  margin-bottom:10px;
+}
+.task-card.done{opacity:0.45;}
+.task-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+.task-text{font-size:14px;line-height:1.4;}
+.badge{
+  font-size:10px;
+  padding:3px 9px;
+  border-radius:20px;
+  font-weight:600;
+  white-space:nowrap;
+}
+.badge.active{background:rgba(200,169,110,0.15);color:var(--gold);}
+.badge.done{background:rgba(76,175,125,0.15);color:var(--success);}
+.task-meta{font-size:11px;color:var(--text-muted);margin-top:8px;}
+.task-actions{display:flex;gap:8px;margin-top:10px;}
+.task-actions button{
+  flex:1;
+  background:var(--surface2);
+  border:0.5px solid var(--border);
+  border-radius:10px;
+  padding:8px;
+  font-size:12px;
+  color:var(--text);
+  cursor:pointer;
+}
+.task-actions button.danger{color:var(--error);}
+.task-actions button.success-btn{color:var(--success);}
+
+.rem-countdown{font-size:20px;font-weight:700;color:var(--gold);margin-top:6px;}
+.empty-state{text-align:center;color:var(--text-muted);font-size:13px;padding:40px 0;}
+
+.toast{
+  position:fixed;bottom:24px;left:50%;
+  transform:translateX(-50%) translateY(20px);
+  background:var(--surface2);
+  border:0.5px solid var(--gold-dark);
+  color:var(--text);
+  padding:12px 18px;
+  border-radius:12px;
+  font-size:13px;
+  opacity:0;
+  transition:0.25s;
+  z-index:999;
+  max-width:90%;
+  text-align:center;
+}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo">JARVIS</div>
+    <div class="status-dot" id="statusDot" title="Готов"></div>
+  </header>
+
+  <div class="clock">
+    <div class="time" id="clockTime">--:--:--</div>
+    <div class="date" id="clockDate">—</div>
+  </div>
+
+  <div class="voice-badge">
+    <div>Голос: <b id="voiceLabel">подбор...</b></div>
+    <button onclick="testVoice()">Тест голоса</button>
+  </div>
+
+  <div class="perm-banner" id="permBanner">
+    <span>Уведомления отключены</span>
+    <button onclick="requestNotifPerm()">Разрешить</button>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-page="home">Главная</div>
+    <div class="tab" data-page="tasks">Задачи</div>
+    <div class="tab" data-page="reminders">Напоминания</div>
+  </div>
+
+  <main>
+    <section class="page active" id="page-home">
+      <div class="orb-wrap">
+        <div class="orb" id="orb" onclick="startListen()"><i class="ti ti-microphone"></i></div>
+        <div class="orb-hint" id="orbHint">Нажмите и скажите команду</div>
+      </div>
+
+      <div class="bubble" id="bubble">Здравствуйте. Я Джарвис. Скажите или напишите, что нужно сделать.</div>
+
+      <div class="field">
+        <label>Что нужно сделать</label>
+        <input type="text" id="taskText" placeholder="Например: купить карандаш для бровей">
+      </div>
+      <div class="field">
+        <label>Время напоминания</label>
+        <input type="time" id="taskTime">
+      </div>
+      <button class="btn-primary" onclick="addTaskFromForm()">Добавить и установить напоминание</button>
+
+      <div class="quick-row">
+        <div class="quick-chip" onclick="quickFill('Купить карандаш для бровей')">Карандаш для бровей</div>
+        <div class="quick-chip" onclick="quickFill('Купить продукты по списку жены')">Список жены</div>
+        <div class="quick-chip" onclick="quickFill('Оплатить счета')">Оплатить счета</div>
+        <div class="quick-chip" onclick="quickFill('Забрать посылку')">Забрать посылку</div>
+      </div>
+
+      <div class="input-row">
+        <input type="text" id="chatInput" placeholder="Напишите команду..." onkeydown="if(event.key==='Enter')sendChatInput()">
+        <button onclick="sendChatInput()"><i class="ti ti-send"></i></button>
+      </div>
+    </section>
+
+    <section class="page" id="page-tasks">
+      <div id="tasksList"></div>
+    </section>
+
+    <section class="page" id="page-reminders">
+      <div id="remindersList"></div>
+    </section>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const STORAGE_KEY = 'jarvis_tasks_v1';
+let tasks = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+let timers = {};
+let recognition = null;
+let selectedVoice = null;
+
+function saveTasks(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(tasks));
+}
+
+function showToast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>t.classList.remove('show'), 3500);
+}
+
+function tickClock(){
+  const now = new Date();
+  document.getElementById('clockTime').textContent = now.toLocaleTimeString('ru-RU');
+  document.getElementById('clockDate').textContent = now.toLocaleDateString('ru-RU', {weekday:'long', day:'numeric', month:'long'});
+}
+setInterval(tickClock, 1000);
+tickClock();
+
+function pickVoice(){
+  const voices = speechSynthesis.getVoices();
+  if(!voices.length) return;
+  const ua = navigator.userAgent;
+  let v = null;
+  if(/iPhone|iPad|Macintosh/.test(ua)){
+    v = voices.find(x => x.name.includes('Milena')) ;
+  }
+  if(!v){
+    v = voices.find(x => x.lang === 'ru-RU' && /Google/.test(x.name));
+  }
+  if(!v){
+    v = voices.find(x => x.lang && x.lang.startsWith('ru'));
+  }
+  selectedVoice = v || null;
+  document.getElementById('voiceLabel').textContent = selectedVoice ? selectedVoice.name : 'голос не найден';
+}
+speechSynthesis.onvoiceschanged = pickVoice;
+pickVoice();
+
+function speak(text){
+  if(!('speechSynthesis' in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text);
+  u.lang = 'ru-RU';
+  u.rate = 0.92;
+  u.pitch = 0.85;
+  if(selectedVoice) u.voice = selectedVoice;
+  speechSynthesis.speak(u);
+}
+
+function testVoice(){
+  speak('Здравствуйте. Это голос Джарвиса.');
+}
+
+function updatePermBanner(){
+  const banner = document.getElementById('permBanner');
+  if(!('Notification' in window)){
+    banner.querySelector('span').textContent = 'Уведомления не поддерживаются браузером';
+    return;
+  }
+  if(Notification.permission === 'granted'){
+    banner.classList.add('ok');
+    banner.querySelector('span').textContent = 'Уведомления разрешены';
+    banner.querySelector('button').style.display = 'none';
+  } else {
+    banner.classList.remove('ok');
+    banner.querySelector('span').textContent = 'Уведомления отключены';
+    banner.querySelector('button').style.display = 'inline-block';
+  }
+}
+
+function requestNotifPerm(){
+  if(!('Notification' in window)) return;
+  Notification.requestPermission().then(updatePermBanner);
+}
+updatePermBanner();
+
+function fireNotification(task){
+  if('Notification' in window && Notification.permission === 'granted'){
+    new Notification('JARVIS напоминает', { body: task.text });
+  }
+  speak('Напоминаю: ' + task.text);
+  showToast('Напоминание: ' + task.text);
+}
+
+function scheduleTask(task){
+  const now = new Date();
+  const [h, m] = task.time.split(':').map(Number);
+  let target = new Date();
+  target.setHours(h, m, 0, 0);
+  if(target <= now) target.setDate(target.getDate() + 1);
+  const delay = target.getTime() - now.getTime();
+  clearTimeout(timers[task.id]);
+  timers[task.id] = setTimeout(()=>{
+    const t = tasks.find(x => x.id === task.id);
+    if(t && !t.done){
+      fireNotification(t);
+      scheduleTask(t);
+    }
+  }, delay);
+}
+
+function restoreTimers(){
+  tasks.filter(t => !t.done).forEach(scheduleTask);
+}
+
+function addTask(text, time){
+  const task = {
+    id: Date.now().toString(36) + Math.random().toString(36).slice(2),
+    text: text,
+    time: time,
+    createdAt: new Date().toISOString(),
+    done: false
+  };
+  tasks.unshift(task);
+  saveTasks();
+  scheduleTask(task);
+  renderTasks();
+  renderReminders();
+  return task;
+}
+
+function addTaskFromForm(){
+  const textEl = document.getElementById('taskText');
+  const timeEl = document.getElementById('taskTime');
+  const text = textEl.value.trim();
+  const time = timeEl.value;
+  if(!text || !time){
+    showToast('Укажите задачу и время');
+    return;
+  }
+  addTask(text, time);
+  document.getElementById('bubble').innerHTML = `Принято: <b>${escapeHtml(text)}</b>. Напомню в ${time}.`;
+  speak(`Принято. Напомню в ${time.replace(':', ' ')}.`);
+  textEl.value = '';
+  timeEl.value = '';
+  showToast('Задача добавлена');
+}
+
+function quickFill(text){
+  document.getElementById('taskText').value = text;
+}
+
+function toggleDone(id){
+  const t = tasks.find(x => x.id === id);
+  if(!t) return;
+  t.done = !t.done;
+  if(t.done) clearTimeout(timers[id]);
+  else scheduleTask(t);
+  saveTasks();
+  renderTasks();
+  renderReminders();
+}
+
+function deleteTask(id){
+  clearTimeout(timers[id]);
+  tasks = tasks.filter(x => x.id !== id);
+  saveTasks();
+  renderTasks();
+  renderReminders();
+}
+
+function escapeHtml(s){
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+function renderTasks(){
+  const list = document.getElementById('tasksList');
+  if(!tasks.length){
+    list.innerHTML = '<div class="empty-state">Пока нет задач</div>';
+    return;
+  }
+  list.innerHTML = tasks.map(t => `
+    <div class="task-card ${t.done ? 'done' : ''}">
+      <div class="task-top">
+        <div class="task-text">${escapeHtml(t.text)}</div>
+        <div class="badge ${t.done ? 'done' : 'active'}">${t.done ? 'Выполнено' : 'Активно'}</div>
+      </div>
+      <div class="task-meta">Создано: ${new Date(t.createdAt).toLocaleString('ru-RU')} · Напоминание: ${t.time}</div>
+      <div class="task-actions">
+        <button class="success-btn" onclick="toggleDone('${t.id}')">${t.done ? 'Вернуть' : 'Выполнено'}</button>
+        <button class="danger" onclick="deleteTask('${t.id}')">Удалить</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function formatCountdown(time){
+  const now = new Date();
+  const [h, m] = time.split(':').map(Number);
+  let target = new Date();
+  target.setHours(h, m, 0, 0);
+  if(target <= now) target.setDate(target.getDate() + 1);
+  const diffMs = target - now;
+  const diffMin = Math.round(diffMs / 60000);
+  const hh = Math.floor(diffMin / 60);
+  const mm = diffMin % 60;
+  if(hh > 0) return `через ${hh} ч ${mm} мин`;
+  return `через ${mm} мин`;
+}
+
+function renderReminders(){
+  const list = document.getElementById('remindersList');
+  const active = tasks.filter(t => !t.done);
+  if(!active.length){
+    list.innerHTML = '<div class="empty-state">Нет активных напоминаний</div>';
+    return;
+  }
+  list.innerHTML = active.map(t => `
+    <div class="rem-card">
+      <div class="task-text">${escapeHtml(t.text)}</div>
+      <div class="rem-countdown">${formatCountdown(t.time)}</div>
+      <div class="task-meta">Напоминание в ${t.time}</div>
+      <div class="task-actions">
+        <button class="danger" onclick="deleteTask('${t.id}')">Удалить</button>
+      </div>
+    </div>
+  `).join('');
+}
+setInterval(renderReminders, 60000);
+
+document.querySelectorAll('.tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('page-' + tab.dataset.page).classList.add('active');
+  });
+});
+
+function extractTime(text){
+  let m = text.match(/в\s+(\d{1,2})[:\.](\d{2})/);
+  if(m) return `${m[1].padStart(2,'0')}:${m[2]}`;
+  m = text.match(/в\s+(\d{1,2})\s*час/);
+  if(m) return `${m[1].padStart(2,'0')}:00`;
+  return null;
+}
+
+function processCmd(text){
+  const time = extractTime(text) || '18:00';
+  const cleanText = text.replace(/джарвис[,]?\s*/i, '').trim();
+  addTask(cleanText, time);
+  document.getElementById('bubble').innerHTML = `Принято: <b>${escapeHtml(cleanText)}</b>. Напомню в ${time}.`;
+  speak(`Принято. Напомню в ${time.replace(':', ' ')}.`);
+}
+
+function sendChatInput(){
+  const input = document.getElementById('chatInput');
+  const text = input.value.trim();
+  if(!text) return;
+  processCmd(text);
+  input.value = '';
+}
+
+function startListen(){
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if(!SR){
+    showToast('Голосовой ввод не поддерживается этим браузером');
+    return;
+  }
+  const orb = document.getElementById('orb');
+  if(!recognition){
+    recognition = new SR();
+    recognition.lang = 'ru-RU';
+    recognition.interimResults = false;
+    recognition.maxAlternatives = 1;
+    recognition.onresult = (e) => {
+      const text = e.results[0][0].transcript;
+      processCmd(text);
+    };
+    recognition.onend = () => orb.classList.remove('listening');
+    recognition.onerror = () => orb.classList.remove('listening');
+  }
+  orb.classList.add('listening');
+  try { recognition.start(); } catch(e) {}
+}
+
+renderTasks();
+renderReminders();
+restoreTimers();
+</script>
+</body>
+</html>
