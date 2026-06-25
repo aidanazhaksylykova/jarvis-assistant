@@ -374,6 +374,11 @@ main{flex:1;padding:0 20px 30px;overflow-y:auto;}
     <button onclick="requestNotifPerm()">Разрешить</button>
   </div>
 
+  <div class="perm-banner" id="geoBanner">
+    <span id="geoBannerText">Геолокация: проверка...</span>
+    <button id="geoBannerBtn" onclick="requestGeoPerm()">Разрешить</button>
+  </div>
+
   <div class="tabs">
     <div class="tab active" data-page="home">Главная</div>
     <div class="tab" data-page="tasks">Задачи</div>
@@ -514,6 +519,55 @@ function requestNotifPerm(){
   Notification.requestPermission().then(updatePermBanner);
 }
 updatePermBanner();
+
+function setGeoBanner(state){
+  const banner = document.getElementById('geoBanner');
+  const text = document.getElementById('geoBannerText');
+  const btn = document.getElementById('geoBannerBtn');
+  if(state === 'granted'){
+    banner.classList.add('ok');
+    text.textContent = 'Геолокация разрешена';
+    btn.style.display = 'none';
+  } else if(state === 'denied'){
+    banner.classList.remove('ok');
+    text.textContent = 'Геолокация заблокирована — анализ магазинов не работает. Откройте настройки сайта (значок замка в адресной строке) → Местоположение → Разрешить, затем обновите страницу.';
+    btn.style.display = 'none';
+  } else if(state === 'unsupported'){
+    banner.classList.remove('ok');
+    text.textContent = 'Браузер не поддерживает геолокацию';
+    btn.style.display = 'none';
+  } else {
+    banner.classList.remove('ok');
+    text.textContent = 'Геолокация не разрешена';
+    btn.style.display = 'inline-block';
+  }
+}
+
+function updateGeoBanner(){
+  if(!('geolocation' in navigator)){
+    setGeoBanner('unsupported');
+    return;
+  }
+  if(navigator.permissions && navigator.permissions.query){
+    navigator.permissions.query({ name: 'geolocation' }).then(status => {
+      setGeoBanner(status.state);
+      status.onchange = () => setGeoBanner(status.state);
+    }).catch(() => setGeoBanner('prompt'));
+  } else {
+    setGeoBanner('prompt');
+  }
+}
+updateGeoBanner();
+
+function requestGeoPerm(){
+  getUserLocation().then(() => {
+    updateGeoBanner();
+    showToast('Геолокация разрешена');
+  }).catch(() => {
+    updateGeoBanner();
+    showToast('Геолокация не предоставлена');
+  });
+}
 
 function fireNotification(task){
   const storePart = task.store ? ` — ${task.store.name}${task.store.addr ? ', ' + task.store.addr : ''}, ~${task.store.price.toLocaleString('ru-RU')} ₸` : '';
@@ -855,10 +909,11 @@ async function handleNearbySearch(rawText){
       speak('Рядом ничего не нашёл.');
     }
   } catch(err){
-    document.getElementById('nearbyResults').innerHTML = '';
-    showToast('Не удалось определить геолокацию');
+    document.getElementById('nearbyResults').innerHTML = '<div class="empty-state">Не удалось получить геолокацию — проверьте баннер выше</div>';
+    showToast(err && err.code === 1 ? 'Доступ к геолокации заблокирован в браузере' : 'Не удалось определить геолокацию');
     document.getElementById('bubble').innerHTML = 'Не получилось определить ваше местоположение. Разрешите доступ к геолокации в браузере.';
     speak('Не получилось определить ваше местоположение.');
+    updateGeoBanner();
   }
 }
 
@@ -874,6 +929,7 @@ async function analyzeAndAttachStore(task, text){
   const category = detectCategory(text);
   const priceRange = priceRangeFor(text);
   document.getElementById('nearbyResults').innerHTML = '<div class="empty-state">Ищу магазины и сравниваю цены...</div>';
+  showToast('Анализирую магазины рядом...');
   try{
     const loc = await getUserLocation();
     const found = await findNearbyPlaces(loc.lat, loc.lon, category.tag);
@@ -898,8 +954,10 @@ async function analyzeAndAttachStore(task, text){
       document.getElementById('bubble').innerHTML += '<br>Магазины рядом не нашёл.';
     }
   } catch(err){
-    document.getElementById('nearbyResults').innerHTML = '';
+    document.getElementById('nearbyResults').innerHTML = '<div class="empty-state">Не удалось получить геолокацию — проверьте баннер выше</div>';
     document.getElementById('bubble').innerHTML += '<br>Не получилось определить местоположение для анализа магазинов.';
+    showToast(err && err.code === 1 ? 'Доступ к геолокации заблокирован в браузере' : 'Не удалось определить местоположение');
+    updateGeoBanner();
   }
 }
 
