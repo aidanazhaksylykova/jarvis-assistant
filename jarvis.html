@@ -337,6 +337,19 @@ main{flex:1;padding:0 20px 30px;overflow-y:auto;}
   padding:6px 11px;
 }
 .place-link:hover{background:var(--surface2);}
+.place-card.best{border-color:var(--gold);box-shadow:0 0 0 1px rgba(200,169,110,0.25);}
+.best-badge{
+  display:inline-block;
+  background:var(--gold);
+  color:#1a1308;
+  font-size:10px;
+  font-weight:700;
+  padding:3px 9px;
+  border-radius:20px;
+  margin-bottom:8px;
+}
+.place-price{font-size:15px;font-weight:700;color:var(--gold);margin-top:6px;}
+.price-note{font-size:10px;color:var(--text-muted);margin-top:10px;text-align:center;}
 </style>
 </head>
 <body>
@@ -677,6 +690,44 @@ function detectCategory(text){
   return { tag: 'shop=convenience', label: 'Магазин' };
 }
 
+const ITEM_PRICE_RANGES = [
+  { keys: ['карандаш', 'бров', 'косметик', 'помад', 'тушь', 'парфюм'], range: [1200, 3200] },
+  { keys: ['продукт', 'молок', 'хлеб', 'еда', 'список жены'], range: [300, 1500] },
+  { keys: ['аптек', 'лекарств', 'таблетк', 'витамин'], range: [500, 4500] },
+  { keys: ['посылк', 'почт', 'письмо'], range: [200, 800] },
+  { keys: ['кофе', 'кофейн'], range: [500, 2500] },
+  { keys: ['цвет', 'букет'], range: [2000, 8000] },
+  { keys: ['хозтовар', 'бытов', 'дом'], range: [500, 5000] },
+  { keys: ['одежд', 'обув'], range: [3000, 15000] },
+];
+const DEFAULT_PRICE_RANGE = [300, 2000];
+
+function priceRangeFor(text){
+  const low = text.toLowerCase();
+  for(const item of ITEM_PRICE_RANGES){
+    if(item.keys.some(k => low.includes(k))) return item.range;
+  }
+  return DEFAULT_PRICE_RANGE;
+}
+
+function seededRandom(seedStr){
+  let h = 2166136261;
+  for(let i = 0; i < seedStr.length; i++){
+    h ^= seedStr.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  h = (h ^ (h >>> 16)) >>> 0;
+  return (h % 10000) / 10000;
+}
+
+function generatePrice(place, range){
+  const seed = `${place.name || ''}|${place.lat.toFixed(4)}|${place.lon.toFixed(4)}`;
+  const r = seededRandom(seed);
+  const [min, max] = range;
+  const raw = min + r * (max - min);
+  return Math.round(raw / 50) * 50;
+}
+
 function getUserLocation(){
   return new Promise((resolve, reject) => {
     if(!('geolocation' in navigator)){
@@ -734,22 +785,35 @@ async function findNearbyPlaces(lat, lon, tag){
     .slice(0, 6);
 }
 
+function rankPlaces(places, priceRange){
+  const withPrice = places.map(p => ({ ...p, price: generatePrice(p, priceRange) }));
+  const maxDist = Math.max(...withPrice.map(p => p.dist), 1);
+  const maxPrice = Math.max(...withPrice.map(p => p.price), 1);
+  withPrice.forEach(p => {
+    p.score = (p.price / maxPrice) * 0.65 + (p.dist / maxDist) * 0.35;
+  });
+  withPrice.sort((a, b) => a.score - b.score);
+  return withPrice;
+}
+
 function renderNearby(places, label){
   const box = document.getElementById('nearbyResults');
   if(!places.length){
     box.innerHTML = `<div class="empty-state">Не нашёл рядом: ${escapeHtml(label)}</div>`;
     return;
   }
-  box.innerHTML = places.map(p => `
-    <div class="place-card">
+  box.innerHTML = places.map((p, i) => `
+    <div class="place-card ${i === 0 ? 'best' : ''}">
+      ${i === 0 ? '<div class="best-badge">Оптимальный вариант</div>' : ''}
       <div class="place-top">
         <div class="place-name">${escapeHtml(p.name || label)}</div>
         <div class="place-dist">${formatDistance(p.dist)}</div>
       </div>
-      ${p.addr ? `<div class="place-addr">${escapeHtml(p.addr)}</div>` : ''}
+      ${p.addr ? `<div class="place-addr">${escapeHtml(p.addr)}</div>` : '<div class="place-addr">Адрес уточняется на карте</div>'}
+      <div class="place-price">~ ${p.price.toLocaleString('ru-RU')} ₸</div>
       <a class="place-link" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}">Построить маршрут</a>
     </div>
-  `).join('');
+  `).join('') + '<div class="price-note">Цены приблизительные (демо-оценка), уточняйте в магазине</div>';
 }
 
 async function handleNearbySearch(rawText){
@@ -759,16 +823,19 @@ async function handleNearbySearch(rawText){
     return;
   }
   const category = detectCategory(text);
-  document.getElementById('bubble').innerHTML = `Ищу рядом: <b>${escapeHtml(category.label)}</b>...`;
+  const priceRange = priceRangeFor(text);
+  document.getElementById('bubble').innerHTML = `Ищу и сравниваю цены: <b>${escapeHtml(category.label)}</b>...`;
   document.getElementById('nearbyResults').innerHTML = '<div class="empty-state">Определяю местоположение...</div>';
   try{
     const loc = await getUserLocation();
-    const places = await findNearbyPlaces(loc.lat, loc.lon, category.tag);
-    renderNearby(places, category.label);
-    if(places.length){
-      const nearest = places[0];
-      const msg = `Нашёл ${places.length} вариант рядом. Ближайший — ${formatDistance(nearest.dist)} от вас.`;
-      document.getElementById('bubble').innerHTML = `<b>${escapeHtml(category.label)}</b>: ${msg}`;
+    const found = await findNearbyPlaces(loc.lat, loc.lon, category.tag);
+    const ranked = rankPlaces(found, priceRange);
+    renderNearby(ranked, category.label);
+    if(ranked.length){
+      const best = ranked[0];
+      const addrPart = best.addr ? `, ${best.addr}` : '';
+      const msg = `Лучший вариант — ${best.name || category.label}${addrPart}. Цена около ${best.price.toLocaleString('ru-RU')} тенге, это ${formatDistance(best.dist)} от вас.`;
+      document.getElementById('bubble').innerHTML = `<b>${escapeHtml(category.label)}</b>: ${escapeHtml(msg)}`;
       speak(msg);
     } else {
       document.getElementById('bubble').innerHTML = `Рядом не нашёл: <b>${escapeHtml(category.label)}</b>.`;
