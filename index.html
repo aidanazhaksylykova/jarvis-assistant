@@ -291,6 +291,52 @@ main{flex:1;padding:0 20px 30px;overflow-y:auto;}
   text-align:center;
 }
 .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+.nearby-search{display:flex;gap:8px;margin-top:22px;}
+.nearby-search input{
+  flex:1;
+  background:var(--surface1);
+  border:0.5px solid var(--border);
+  border-radius:12px;
+  padding:12px 14px;
+  color:var(--text);
+  font-size:14px;
+}
+.nearby-search input:focus{outline:none;border-color:var(--gold-dark);}
+.nearby-search button{
+  background:var(--gold);
+  color:#1a1308;
+  border:none;
+  border-radius:12px;
+  padding:0 16px;
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  white-space:nowrap;
+}
+#nearbyResults{margin-top:14px;}
+.place-card{
+  background:var(--surface1);
+  border:0.5px solid var(--border);
+  border-radius:14px;
+  padding:13px 14px;
+  margin-bottom:10px;
+}
+.place-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;}
+.place-name{font-size:14px;font-weight:600;}
+.place-dist{font-size:12px;color:var(--gold);white-space:nowrap;}
+.place-addr{font-size:12px;color:var(--text-muted);margin-top:4px;}
+.place-link{
+  display:inline-block;
+  margin-top:9px;
+  font-size:12px;
+  color:var(--gold);
+  text-decoration:none;
+  border:0.5px solid var(--gold-dark);
+  border-radius:10px;
+  padding:6px 11px;
+}
+.place-link:hover{background:var(--surface2);}
 </style>
 </head>
 <body>
@@ -351,6 +397,12 @@ main{flex:1;padding:0 20px 30px;overflow-y:auto;}
         <input type="text" id="chatInput" placeholder="Напишите команду..." onkeydown="if(event.key==='Enter')sendChatInput()">
         <button onclick="sendChatInput()"><i class="ti ti-send"></i></button>
       </div>
+
+      <div class="nearby-search">
+        <input type="text" id="nearbyQuery" placeholder="Что купить? Например: аптека" onkeydown="if(event.key==='Enter')handleNearbySearch(this.value)">
+        <button onclick="handleNearbySearch(document.getElementById('nearbyQuery').value)"><i class="ti ti-map-pin"></i> Рядом</button>
+      </div>
+      <div id="nearbyResults"></div>
     </section>
 
     <section class="page" id="page-tasks">
@@ -605,6 +657,135 @@ document.querySelectorAll('.tab').forEach(tab => {
   });
 });
 
+const CATEGORY_MAP = [
+  { keys: ['аптек', 'лекарств', 'таблетк', 'витамин'], tag: 'amenity=pharmacy', label: 'Аптека' },
+  { keys: ['продукт', 'молок', 'хлеб', 'еда', 'список жены'], tag: 'shop=supermarket', label: 'Супермаркет' },
+  { keys: ['карандаш', 'бров', 'косметик', 'помад', 'тушь', 'парфюм'], tag: 'shop=cosmetics', label: 'Магазин косметики' },
+  { keys: ['посылк', 'почт', 'письмо'], tag: 'amenity=post_office', label: 'Почта' },
+  { keys: ['счет', 'банк', 'оплат'], tag: 'amenity=bank', label: 'Банк' },
+  { keys: ['кофе', 'кофейн'], tag: 'amenity=cafe', label: 'Кофейня' },
+  { keys: ['цвет', 'букет'], tag: 'shop=florist', label: 'Цветочный магазин' },
+  { keys: ['хозтовар', 'бытов', 'дом'], tag: 'shop=hardware', label: 'Хозтовары' },
+  { keys: ['одежд', 'обув'], tag: 'shop=clothes', label: 'Магазин одежды' },
+];
+
+function detectCategory(text){
+  const low = text.toLowerCase();
+  for(const cat of CATEGORY_MAP){
+    if(cat.keys.some(k => low.includes(k))) return cat;
+  }
+  return { tag: 'shop=convenience', label: 'Магазин' };
+}
+
+function getUserLocation(){
+  return new Promise((resolve, reject) => {
+    if(!('geolocation' in navigator)){
+      reject(new Error('Геолокация не поддерживается браузером'));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ lat: pos.coords.latitude, lon: pos.coords.longitude }),
+      err => reject(err),
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  });
+}
+
+function haversine(lat1, lon1, lat2, lon2){
+  const R = 6371000;
+  const toRad = d => d * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2)**2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+function formatDistance(m){
+  if(m < 1000) return `${Math.round(m)} м`;
+  return `${(m/1000).toFixed(1)} км`;
+}
+
+async function findNearbyPlaces(lat, lon, tag){
+  const [k, v] = tag.split('=');
+  const query = `[out:json][timeout:15];(node[${k}=${v}](around:4000,${lat},${lon});way[${k}=${v}](around:4000,${lat},${lon}););out center 15;`;
+  const resp = await fetch('https://overpass-api.de/api/interpreter', {
+    method: 'POST',
+    body: 'data=' + encodeURIComponent(query)
+  });
+  if(!resp.ok) throw new Error('Сервис карт недоступен');
+  const data = await resp.json();
+  return (data.elements || [])
+    .map(el => {
+      const plat = el.lat ?? el.center?.lat;
+      const plon = el.lon ?? el.center?.lon;
+      if(plat == null || plon == null) return null;
+      const tags = el.tags || {};
+      const addr = [tags['addr:street'], tags['addr:housenumber']].filter(Boolean).join(', ');
+      return {
+        name: tags.name || null,
+        addr: addr,
+        lat: plat,
+        lon: plon,
+        dist: haversine(lat, lon, plat, plon)
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.dist - b.dist)
+    .slice(0, 6);
+}
+
+function renderNearby(places, label){
+  const box = document.getElementById('nearbyResults');
+  if(!places.length){
+    box.innerHTML = `<div class="empty-state">Не нашёл рядом: ${escapeHtml(label)}</div>`;
+    return;
+  }
+  box.innerHTML = places.map(p => `
+    <div class="place-card">
+      <div class="place-top">
+        <div class="place-name">${escapeHtml(p.name || label)}</div>
+        <div class="place-dist">${formatDistance(p.dist)}</div>
+      </div>
+      ${p.addr ? `<div class="place-addr">${escapeHtml(p.addr)}</div>` : ''}
+      <a class="place-link" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${p.lat},${p.lon}">Построить маршрут</a>
+    </div>
+  `).join('');
+}
+
+async function handleNearbySearch(rawText){
+  const text = (rawText || '').trim();
+  if(!text){
+    showToast('Укажите, что нужно найти');
+    return;
+  }
+  const category = detectCategory(text);
+  document.getElementById('bubble').innerHTML = `Ищу рядом: <b>${escapeHtml(category.label)}</b>...`;
+  document.getElementById('nearbyResults').innerHTML = '<div class="empty-state">Определяю местоположение...</div>';
+  try{
+    const loc = await getUserLocation();
+    const places = await findNearbyPlaces(loc.lat, loc.lon, category.tag);
+    renderNearby(places, category.label);
+    if(places.length){
+      const nearest = places[0];
+      const msg = `Нашёл ${places.length} вариант рядом. Ближайший — ${formatDistance(nearest.dist)} от вас.`;
+      document.getElementById('bubble').innerHTML = `<b>${escapeHtml(category.label)}</b>: ${msg}`;
+      speak(msg);
+    } else {
+      document.getElementById('bubble').innerHTML = `Рядом не нашёл: <b>${escapeHtml(category.label)}</b>.`;
+      speak('Рядом ничего не нашёл.');
+    }
+  } catch(err){
+    document.getElementById('nearbyResults').innerHTML = '';
+    showToast('Не удалось определить геолокацию');
+    document.getElementById('bubble').innerHTML = 'Не получилось определить ваше местоположение. Разрешите доступ к геолокации в браузере.';
+    speak('Не получилось определить ваше местоположение.');
+  }
+}
+
+function isNearbyIntent(text){
+  return /рядом|поблизости|где купить|где найти|найди магазин|ближайш/i.test(text);
+}
+
 function extractTime(text){
   let m = text.match(/в\s+(\d{1,2})[:\.](\d{2})/);
   if(m) return `${m[1].padStart(2,'0')}:${m[2]}`;
@@ -614,6 +795,10 @@ function extractTime(text){
 }
 
 function processCmd(text){
+  if(isNearbyIntent(text)){
+    handleNearbySearch(text);
+    return;
+  }
   const time = extractTime(text) || '18:00';
   const cleanText = text.replace(/джарвис[,]?\s*/i, '').trim();
   addTask(cleanText, time);
